@@ -1,0 +1,31 @@
+meta {
+  name: health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+headers {
+  accept: application/json
+}
+
+docs {
+  Comprueba que la API está viva y devuelve el modelo de Google GenAI en uso.
+
+  Respuesta esperada:
+  {
+    "ok": true,
+    "modelo": "gemini-3.5-flash-lite"
+  }
+}
+
+assert {
+  res.status: 200
+  res.body.ok: true
+  res.body.modelo: gemini-3.5-flash-lite
+}

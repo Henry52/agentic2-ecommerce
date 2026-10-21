@@ -1,0 +1,40 @@
+meta {
+  name: chat-generica
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/chat
+  body: json
+  auth: none
+}
+
+headers {
+  accept: application/json
+  content-type: application/json
+}
+
+body:json {
+  {
+    "user_id": "bruno-generica",
+    "texto": "hola"
+  }
+}
+
+docs {
+  Mensaje genérico: un saludo sin relación con la tienda.
+  El router debe elegir la ruta `generica` y derivar a `respuesta_generica`.
+
+  Respuesta esperada:
+  {
+    "ruta": "generica",
+    "motivo": "Es un saludo sin ninguna solicitud relacionada con compra o pedidos.",
+    "respuesta": "¡Hola! Este chat es para la tienda: ..."
+  }
+}
+
+assert {
+  res.status: 200
+  res.body.ruta: generica
+}

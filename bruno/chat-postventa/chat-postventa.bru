@@ -1,0 +1,40 @@
+meta {
+  name: chat-postventa
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/chat
+  body: json
+  auth: none
+}
+
+headers {
+  accept: application/json
+  content-type: application/json
+}
+
+body:json {
+  {
+    "user_id": "bruno-postventa",
+    "texto": "mi pedido 4521 llegó roto"
+  }
+}
+
+docs {
+  Mensaje de postventa: el cliente reclama por un pedido ya realizado.
+  El router debe elegir la ruta `postventa` y derivar a `agente_postventa`.
+
+  Respuesta esperada:
+  {
+    "ruta": "postventa",
+    "motivo": "El cliente reporta un problema con un pedido ya realizado.",
+    "respuesta": "Soy el agente de postventa. Recibí: ..."
+  }
+}
+
+assert {
+  res.status: 200
+  res.body.ruta: postventa
+}

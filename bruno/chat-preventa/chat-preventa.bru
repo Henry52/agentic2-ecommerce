@@ -1,0 +1,40 @@
+meta {
+  name: chat-preventa
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/chat
+  body: json
+  auth: none
+}
+
+headers {
+  accept: application/json
+  content-type: application/json
+}
+
+body:json {
+  {
+    "user_id": "bruno-preventa",
+    "texto": "¿tienen la polera azul en talla M?"
+  }
+}
+
+docs {
+  Mensaje de preventa: el cliente pregunta por un producto antes de comprar.
+  El router debe elegir la ruta `preventa` y derivar a `agente_preventa`.
+
+  Respuesta esperada:
+  {
+    "ruta": "preventa",
+    "motivo": "El cliente pregunta por la disponibilidad y talla de un producto antes de comprar.",
+    "respuesta": "Soy el agente de preventa. Recibí: ..."
+  }
+}
+
+assert {
+  res.status: 200
+  res.body.ruta: preventa
+}
