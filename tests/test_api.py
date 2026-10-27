@@ -53,18 +53,6 @@ def test_chat_sin_user_id_devuelve_422():
     assert r.status_code == 422
 
 
-def test_telegram_responde_ok():
-    r = client.post("/telegram", json={"update_id": 1, "message": {"text": "hola"}})
-    assert r.status_code == 200
-    assert r.json() == {"ok": True}
-
-
-def test_telegram_acepta_cualquier_json():
-    r = client.post("/telegram", json={"cualquier": ["cosa", 1, True]})
-    assert r.status_code == 200
-    assert r.json() == {"ok": True}
-
-
 def test_openapi_tiene_titulo_version_y_tags():
     spec = client.get("/openapi.json").json()
     assert spec["info"]["title"] == "Ecommerce Router API"

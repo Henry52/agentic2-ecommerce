@@ -6,15 +6,18 @@ Levantar en local:
 Swagger completo en http://localhost:8000/docs
 """
 
+import hmac
 import logging
 import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
+import httpx
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,6 +27,8 @@ from src.router.graph import graph
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+# Los logs INFO de httpx incluyen la URL y, en Telegram, el token del bot.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("api.heroku")
 
 MODELO = os.getenv("MODELO", "gemini-3.5-flash-lite")
@@ -209,8 +214,70 @@ def chat(pedido: ChatRequest) -> ChatResponse:
     response_model=TelegramResponse,
     include_in_schema=False,
     summary="Webhook entrante de Telegram",
-    description="Recibe las actualizaciones del webhook de Telegram. Se completa en la parte 5.",
+    description="Verifica el secreto, rutea los mensajes de texto y responde al chat por Telegram.",
 )
-async def telegram(payload: Any = Body(...)) -> TelegramResponse:
-    logger.info("Actualización de Telegram recibida. tipo=%s", type(payload).__name__)
+async def telegram(request: Request) -> TelegramResponse:
+    secreto = os.getenv("TELEGRAM_SECRET", "")
+    recibido = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secreto or not hmac.compare_digest(recibido.encode(), secreto.encode()):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Secreto de Telegram inválido.")
+
+    try:
+        payload = await request.json()
+    except ValueError:
+        return TelegramResponse(ok=True)
+
+    mensaje = payload.get("message") if isinstance(payload, dict) else None
+    if not isinstance(mensaje, dict):
+        return TelegramResponse(ok=True)
+    texto = mensaje.get("text")
+    chat_telegram = mensaje.get("chat")
+    chat_id = chat_telegram.get("id") if isinstance(chat_telegram, dict) else None
+    if not isinstance(texto, str) or not texto.strip() or type(chat_id) is not int:
+        return TelegramResponse(ok=True)
+
+    token = os.getenv("TELEGRAM_TOKEN", "")
+    if not token:
+        logger.error("Telegram sin TELEGRAM_TOKEN configurado. chat_id=%s", chat_id)
+        return TelegramResponse(ok=True)
+
+    try:
+        # El grafo es síncrono: el pool permite atender otras peticiones mientras espera al modelo.
+        resultado = await run_in_threadpool(
+            graph.invoke,
+            {"mensaje": texto},
+            config={"configurable": {"thread_id": str(chat_id)}},
+        )
+        if not isinstance(resultado, dict) or resultado.get("ruta") not in RUTAS_VALIDAS:
+            raise ValueError("Resultado del grafo inválido")
+        respuesta = resultado.get("respuesta")
+        if not isinstance(respuesta, str) or not respuesta.strip():
+            raise ValueError("Respuesta del grafo vacía")
+        logger.info(
+            "Telegram chat_id=%s ruta=%s motivo=%s",
+            chat_id,
+            resultado["ruta"],
+            resultado.get("motivo", ""),
+        )
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # sendMessage admite como máximo 4096 caracteres por mensaje.
+            for inicio in range(0, len(respuesta), 4096):
+                envio = await client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat_id, "text": respuesta[inicio:inicio + 4096]},
+                )
+                envio.raise_for_status()
+                if envio.json().get("ok") is not True:
+                    logger.error("Telegram sendMessage rechazado. chat_id=%s", chat_id)
+                    break
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "Telegram sendMessage rechazado. chat_id=%s status=%s", chat_id, exc.response.status_code
+        )
+    except Exception as exc:
+        # No imprimir la excepción: puede contener la URL con el token o claves del modelo.
+        logger.error("Fallo al responder por Telegram. chat_id=%s tipo=%s", chat_id, type(exc).__name__)
+
+    # Confirmar también los fallos de procesamiento para evitar reintentos del mismo update.
     return TelegramResponse(ok=True)
